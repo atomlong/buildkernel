@@ -1,0 +1,77 @@
+name: git CI
+
+on: 
+  release:
+    types: [published]
+  push:
+    tags:
+    - 'v*'
+    branches: 
+    - master
+  schedule:
+    - cron: 00 00 * * *
+  watch:
+    types: [started]
+
+jobs:
+  build-kernel:
+    runs-on: ubuntu-latest
+    name: build_deploy
+    if: github.event.repository.owner.id == github.event.sender.id
+    env:
+      RCLONE_CONF:  ${{ secrets.RCLONE_CONF }}
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v2
+      id: checkout
+      with:
+        fetch-depth: 0
+    - name: Build Image
+      id: build
+      env:
+        DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+        TOOLCHAIN_URL: ${{ secrets.TOOLCHAIN_URL }}
+        RCLONE_CONF_ZIP_URL: ${{ secrets.RCLONE_CONF_ZIP_URL }}
+        SOURCES_URL: ${{ secrets.SOURCES_URL }}
+        ZIP_PASSWD: ${{ secrets.ZIP_PASSWD }}
+      run: |
+        export CI_REPO=${GITHUB_REPOSITORY}
+        export CI_BUILD_DIR=${GITHUB_WORKSPACE}
+        export CI_COMMIT=${GITHUB_SHA}
+        export CI_BRANCH=${GITHUB_REF#refs/heads/}
+        export CI_BUILD_NUMBER=${GITHUB_RUN_NUMBER}
+        bash .github/workflows/ci-build.sh
+    - name: Send mail
+      uses: atomlong/send-mail-action@v3.5.0
+      id: mail
+      if: ${{ steps.build.outputs.message != '' }}
+      with:
+        server_address: ${{secrets.MAIL_HOST}}
+        server_port: ${{secrets.MAIL_PORT}}
+        username: ${{secrets.MAIL_USERNAME}}
+        password: ${{secrets.MAIL_PASSWORD}}
+        subject: Github Actions job of ${{github.repository}} result
+        html_body: ${{ steps.build.outputs.message }}
+        to: ${{secrets.MAIL_TO}}
+        from: Github
+    - name: Refresh access token
+      id: refresh
+      run: |
+        sudo apt install rclone -y
+        RCLONE_CONFIG_PATH=$(rclone config file | tail -n1)
+        [ -f ${RCLONE_CONFIG_PATH} ] || exit 0
+        REMOTES=($(rclone listremotes))
+        for remote in ${REMOTES[@]}; do
+        rclone lsd ${remote} &>/dev/null
+        done
+        RCLONE_CONFIG_NEW=$(base64 ${RCLONE_CONFIG_PATH} | tr '\n' '\0')
+        echo ::set-output name=rclone_config::${RCLONE_CONFIG_NEW}
+        echo ::add-mask::${RCLONE_CONFIG_NEW}
+        rm -vf ${RCLONE_CONFIG_PATH}
+    - name: Update Rclone Config secret
+      uses: atomlong/gh-update-secret@master
+      if: ${{ steps.refresh.outputs.rclone_config != '' }}
+      with:
+        name: RCLONE_CONF
+        value: ${{ steps.refresh.outputs.rclone_config }}
+        pa_token: ${{ secrets.GH_PA_TOKEN }}
