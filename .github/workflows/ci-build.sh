@@ -107,6 +107,7 @@ build_image()
 local deploy_path=$(eval echo "${DEPLOY_PATH}")
 local PATCH_DIR=${PWD}/boards/${board}/${branch}
 local PATCH_ZIP=${PATCH_DIR}/patch.zip
+local config
 
 pushd linux
 git clean -d -fx
@@ -126,8 +127,8 @@ unzip -P "${ZIP_PASSWD}" -jo ${PATCH_ZIP} -d ${PATCH_DIR}
 patch -Np1 -i ${PATCH_DIR}/*.patch
 rm -vf ${PATCH_DIR}/*.patch
 }
-cp -vf ${PATCH_DIR}/config .config
-make ARCH=arm CROSS_COMPILE=${TOOLCHAIN_PREFIX}- olddefconfig
+config=$(cat ${PATCH_DIR}/config)
+make ARCH=arm CROSS_COMPILE=${TOOLCHAIN_PREFIX}- ${config}
 make ARCH=arm CROSS_COMPILE=${TOOLCHAIN_PREFIX}- -j4
 make ARCH=arm CROSS_COMPILE=${TOOLCHAIN_PREFIX}- -j4 INSTALL_MOD_PATH=modules modules
 make ARCH=arm CROSS_COMPILE=${TOOLCHAIN_PREFIX}- -j4 INSTALL_MOD_PATH=modules modules_install
